@@ -32,7 +32,7 @@ import java.io.IOException;
 /**
  * 欺诈交易检测的业务逻辑,实现有状态流处理程序
  * 欺诈检查类 FraudDetector 是 KeyedProcessFunction 接口的一个实现。
- * 他的方法 KeyedProcessFunction#processElement 将会在每个交易事件上被调用。这个程序里边会对每笔交易发出警报，有人可能会说这做报过于保守了。
+ * 他的方法 KeyedProcessFunction#processElement 将会在每个交易事件上被调用。这个程序里边会对每笔交易发出警报。
  */
 public class FraudDetector extends KeyedProcessFunction<Long, Transaction, Alert> {
 
@@ -48,9 +48,9 @@ public class FraudDetector extends KeyedProcessFunction<Long, Transaction, Alert
     @Override
     public void open(Configuration parameters) throws Exception {
         ValueStateDescriptor<Boolean> flagDescriptor = new ValueStateDescriptor<>("flag", Types.BOOLEAN);
-		flagState = getRuntimeContext().getState(flagDescriptor);
+        flagState = getRuntimeContext().getState(flagDescriptor);
 
-		ValueStateDescriptor<Long> timerDescriptor = new ValueStateDescriptor<>("timer-state", Types.LONG);
+        ValueStateDescriptor<Long> timerDescriptor = new ValueStateDescriptor<>("timer-state", Types.LONG);
         timerState = getRuntimeContext().getState(timerDescriptor);
     }
 
@@ -67,9 +67,10 @@ public class FraudDetector extends KeyedProcessFunction<Long, Transaction, Alert
             cleanUp(context);
         }
         if (transaction.getAmount() < SMALL_AMOUNT) {
-            // 如小于1则设置true
+            // 如小于1则设置true，创建定时器 1min以后 触发
             flagState.update(true);
             long timer = context.timerService().currentProcessingTime() + ONE_MINUTE;
+            // 注意这里的定时器是基于processTime
             context.timerService().registerEventTimeTimer(timer);
             timerState.update(timer);
         }
@@ -77,8 +78,20 @@ public class FraudDetector extends KeyedProcessFunction<Long, Transaction, Alert
 
     }
 
+    /**
+     * 定时器触发后执行的方法
+     *
+     * @param timestamp 该定时器的触发时间
+     * @param ctx
+     * @param out
+     * @throws Exception
+     */
     @Override
     public void onTimer(long timestamp, OnTimerContext ctx, Collector<Alert> out) throws Exception {
+        Long currentKey = ctx.getCurrentKey();
+        Long value = timerState.value();
+        System.out.println(String.format("currentKey:%d,value:%d", currentKey, value));
+
         // 1min后清理状态
         timerState.clear();
         flagState.clear();
